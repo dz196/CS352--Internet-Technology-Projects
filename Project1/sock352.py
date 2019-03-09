@@ -11,7 +11,7 @@ import struct
 
 sender_port = 0
 receiver_port = 0
-
+destination = 0
 client_isn = 25
 
 PACKET_LIST = []
@@ -59,35 +59,37 @@ class socket:
     def __init__(self):  # fill in your code here 
 
         self.sock = syssock.socket(syssock.AF_INET, syssock.SOCK_DGRAM)
-        self.sock2 = syssock.socket(syssock.AF_INET, syssock.SOCK_DGRAM)
+        #self.sock2 = syssock.socket(syssock.AF_INET, syssock.SOCK_DGRAM)
         self.packet = Packet()
         return
     
     def bind(self,address):
         #Bind socket sock to the given address
         self.sock.bind(address)
-        print("Bind: " + address)
+        print('Bind: ' + str(address[1]))
         return 
 
     def connect(self,address):  # fill in your code here 
         global client_isn
         global PACKET_LIST
+        global destination 
+        destination = address
         #Make UDP Connection and bind receiving socket
         #self.sock.bind(1112)
-        self.sock2.connect(address)
+        self.sock.connect(address)
         print('Connect: ' + str(address))
         #Create connection packet and initialize variables
-        self.packet.version = self.packet.SOCK352_SYN
-        self.packet.sequence_no = client_isn
+        #self.packet.version = self.packet.SOCK352_SYN
+        #self.packet.sequence_no = client_isn
         #Pack the function
-        packed_data = self.packet.pack()
+        #packed_data = self.packet.pack()
 
         #Send packet
-        self.sock2.sendto(packed_data, address)
-        PACKET_LIST.append(Packet(self.packet.version, self.packet.flags, self.packet.header_len, self.packet.sequence_no, self.packet.ack_no, self.packet.payload_len, self.packet.data))
+        #self.sock2.sendto(packed_data, address)
+        #PACKET_LIST.append(Packet(self.packet.version, self.packet.flags, self.packet.header_len, self.packet.sequence_no, self.packet.ack_no, self.packet.payload_len, self.packet.data))
 
 
-        print(PACKET_LIST)
+        #print(PACKET_LIST)
 
         return 
     
@@ -96,26 +98,36 @@ class socket:
         return
 
     def accept(self):
-        (clientsocket, address) = self.sock.accept() # change this to your code
-        self.sock2 = clientsocket
+        global destination
+        (clientsocket, address) = (self,destination) # change this to your code
+        print('Accept: ' + str(self))
         return (clientsocket,address)
      
     def close(self):   # fill in your code here 
         self.sock.close()
-        self.sock2.close()
+        #self.sock2.close()
         return 
 
     def send(self,buffer):
         global PACKET_LIST
-
-        bytessent = 0     # fill in your code here 
+        global client_isn
+        global destination
+        print('sending...')
+        self.packet.version = self.packet.SOCK352_SYN
+        self.packet.sequence_no = client_isn
+        packed_data = self.packet.pack()
+        bytessent = 10     # fill in your code here
+        #buff = self.packet.pack(buffer)
+        #PACKET_LIST.append(buff)
+        self.sock.send(packed_data)
+        PACKET_LIST.append(Packet(self.packet.version, self.packet.flags, self.packet.header_len, self.packet.sequence_no, self.packet.ack_no, self.packet.payload_len, self.packet.data))
         return bytessent 
 
     def recv(self,nbytes):
         global MAX_PACKET_SIZE
 
-        bytesreceived = 0     # fill in your code here
-
+        bytesreceived = self.sock.recv(nbytes)
+        print('bytes received at server: ' + bytesreceived)
         return bytesreceived 
 
 
