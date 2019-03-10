@@ -5,6 +5,8 @@ import struct
 import sys
 import numpy as np
 import struct
+import threading
+import time
 # these functions are global to the class and
 # define the UDP ports all messages are sent
 # and received from
@@ -15,9 +17,10 @@ rcvaddr = None
 sendno = 25
 rcvno = 10
 PACKET_LIST = []
-MAX_PACKET_SIZE = 64*1024
+MAX_PACKET_SIZE = 63*1024
 sock = None
 sock2 = None
+size_of_file = 0
 
 SOCK352_SYN = 1
 SOCK352_FIN = 2
@@ -80,7 +83,7 @@ class socket:
         self.rcvpacket = Packet()
         return
     
-    def lookForPacket(self, target_packet):
+    def lookForPacketHandshake(self, target_packet):
         global PACKET_LIST
         print('SIZE OF QUEUE BEFORE LOOKING: ' + str(PACKET_LIST))
         if len(PACKET_LIST) < 0:
@@ -94,6 +97,19 @@ class socket:
             print('PACKET REMOVED')
         print('SIZE OF QUEUE AFTER LOOKING: ' + str(PACKET_LIST))
         return
+    def lookForPacketNorm(self, target_packet):
+        global PACKET_LIST
+        print('SIZE OF QUEUE BEFORE LOOKING: ' + str(PACKET_LIST))
+        if len(PACKET_LIST) < 0:
+            print('PACKET LIST EMPTY ERROR')
+            return
+        packet = PACKET_LIST[0]
+        print('Sent SequenceNo: ' + str(packet.sequence_no))
+        print('Received SequenceNo: ' + str(target_packet.sequence_no))
+        if (packet.sequence_no == target_packet.sequence_no):
+            PACKET_LIST.remove(packet)
+            print('PACKET REMOVED')
+        print('SIZE OF QUEUE AFTER LOOKING: ' + str(PACKET_LIST))
 
     def bind(self,address):
         #Bind socket sock to the given address
@@ -139,7 +155,7 @@ class socket:
         Packet.unpack(self.rcvpacket, bytes)
         rcvno = self.rcvpacket.sequence_no + 1
         
-        self.lookForPacket(self.rcvpacket)
+        self.lookForPacketHandshake(self.rcvpacket)
         
         #Send ACK of the SYNRCV packet to server
         self.sentpacket = Packet(version = 1, flags = SOCK352_ACK, header_len = struct.calcsize(header_format), sequence_no = sendno, ack_no = rcvno)
@@ -194,29 +210,108 @@ class socket:
         bytes, address = sock.recvfrom(MAX_PACKET_SIZE)
         Packet.unpack(self.rcvpacket, bytes)
 
-        self.lookForPacket(self.rcvpacket)
+        self.lookForPacketHandshake(self.rcvpacket)
 
         print('Server Side Handshake Complete')
-        return (sock,sendaddr)
+        return (self,sendaddr)
      
     def close(self):   # fill in your code here 
         global sock
         global sock2
+        sock.close()
+        sock2.close()
         return 
 
     def send(self,buffer):
         global PACKET_LIST
+        global size_of_file
+        global sock
+        global sock2
+        bytessent = 0
+        if len(buffer) == 4:
+            sock.sendto(buffer, rcvaddr)
+            head_format = struct.Struct('!L')    #Long is 32 bits = 4 bytes
+            tups = head_format.unpack(buffer)
+            size_of_file = tups[0]
+            print('SIZE OF FILE: ' + str(size_of_file))
+            bytessent = 4
+        else:
+            startindices = range(0, size_of_file, MAX_PACKET_SIZE - struct.calcsize(header_format))
+            while startindices:
+                startbyte = startindices[0]
+                self.sentpacket.verison = 1
+                self.sentpacket.flags = 0
+                self.sentpacket.header_len = struct.calcsize(header_format)
+                self.sentpacket.sequence_no = startbyte
+                self.sentpacket.ack_no = 0
+                self.sentpacket.payload_len = 0
+                if startbyte != startindices[len(startindices) - 1]:
+                    self.sentpacket.data = buffer[startbyte:startbyte + MAX_PACKET_SIZE-struct.calcsize(header_format)]
+                else:
+                    self.sentpacket.data = buffer[startbyte:]
+                
+                sock.sendto(self.sentpacket.pack(), rcvaddr)
 
-        bytessent = 0     # fill in your code here 
+                PACKET_LIST.append(Packet(version = self.sentpacket.version, flags = self.sentpacket.flags, header_len = self.sentpacket.header_len, sequence_no = self.sentpacket.sequence_no, ack_no = self.sentpacket.ack_no, payload_len = self.sentpacket.payload_len, data = self.sentpacket.data, timesent = time.time()))
+                startindices.pop(0)
+            bytessent = len(buffer)
+
+        print('AFTER SENDING: ')
+        print(len(PACKET_LIST))
+        print(PACKET_LIST)
+
+        #Receive all ACKS
+        while PACKET_LIST:
+            bytes, address = sock.recvfrom(MAX_PACKET_SIZE)
+            Packet.unpack(self.rcvpacket, bytes)
+            
+            self.lookForPacketNorm(self.rcvpacket)
+
         return bytessent 
 
     def recv(self,nbytes):
-        global MAX_PACKET_SIZE
         global PACKET_LIST
-        global destination
+        global size_of_file
+        global sock2
 
-        bytesreceived = 0     # fill in your code here
+        bytesreceived = 0
+        if nbytes == 4:
+            bytes, address = sock.recvfrom(MAX_PACKET_SIZE)
+            head_format = struct.Struct('!L')  
+            tups = head_format.unpack(bytes)
+            size_of_file = tups[0]
+            print('SIZE OF FILE: ' + str(size_of_file))
+            bytesreceived = bytes
+        else:
+            startindices = range(0, size_of_file, MAX_PACKET_SIZE - struct.calcsize(header_format))
+            bytesreceived = ''
+            print('BEFORE LOOP')
+            while startindices:
+                startbyte = startindices[0]
+                print('STARTBYTE: '  + str(startbyte))
+                bytes, address = sock.recvfrom(MAX_PACKET_SIZE)
+                Packet.unpack(self.rcvpacket, bytes)
 
+                if int(self.rcvpacket.sequence_no) == int(startbyte):
+                    bytesreceived += self.rcvpacket.data
+
+                    self.sentpacket.verison = 1
+                    self.sentpacket.flags = SOCK352_ACK
+                    self.sentpacket.header_len = struct.calcsize(header_format)
+                    self.sentpacket.sequence_no = startbyte
+                    self.sentpacket.ack_no = startbyte + (MAX_PACKET_SIZE - struct.calcsize(header_format))
+                    self.sentpacket.payload_len = 0
+                    self.sentpacket.data = b''
+
+                    sock2.sendto(self.sentpacket.pack(), sendaddr)
+                    print('ACK of Sequence No: ' + str(startbyte))
+
+                    startindices.pop(0)
+
+                print('END OF LOOP')
+        print('AFTER RECEIVING: ')
+        print(len(PACKET_LIST))
+        print(PACKET_LIST)
         return bytesreceived 
 
 
