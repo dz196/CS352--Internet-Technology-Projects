@@ -11,9 +11,9 @@ import struct
 
 sender_port = 0
 receiver_port = 0
-
+destination = 0
 client_isn = 25
-
+server_isn = 10
 PACKET_LIST = []
 MAX_PACKET_SIZE = 64*1024
 class Packet:
@@ -37,7 +37,7 @@ class Packet:
     def pack(self):
         bindata = struct.pack(self.packet_format, self.version, self.flags, self.header_len, self.sequence_no, self.ack_no, self.payload_len, self.data)
         return bindata
-    def unpack(self, bytes ):
+    def unpack(self, bytes):
         packet_fields = struct.unpack(self.packet_format, bytes)
         self.version = packet_fields[0]
         self.flags = packet_fields[1]
@@ -60,34 +60,67 @@ class socket:
 
         self.sock = syssock.socket(syssock.AF_INET, syssock.SOCK_DGRAM)
         self.sock2 = syssock.socket(syssock.AF_INET, syssock.SOCK_DGRAM)
-        self.packet = Packet()
+        self.sentpacket = Packet()
+        self.rcvpacket = Packet()
         return
     
+    def lookForPacket(self, target_packet):
+        global PACKET_LIST
+        print('SIZE OF QUEUE BEFORE LOOKING: ' + str(PACKET_LIST))
+        for packet in PACKET_LIST:
+            if (packet.sequence_no == target_packet.ack_no):
+                PACKET_LIST.remove(packet)
+                break
+        print('SIZE OF QUEUE AFTER LOOKING: ' + str(PACKET_LIST))
+        return
+
     def bind(self,address):
         #Bind socket sock to the given address
         self.sock.bind(address)
-        print("Bind: " + address)
+        print("Bind: " + str(address))
         return 
 
     def connect(self,address):  # fill in your code here 
         global client_isn
         global PACKET_LIST
+        global destination
+        global MAX_PACKET_SIZE
+
+        destination = address
+
+        #Bind client side receiving port - SOCK
+        self.sock.bind(address)
         #Make UDP Connection and bind receiving socket
-        #self.sock.bind(1112)
+        
         self.sock2.connect(address)
         print('Connect: ' + str(address))
+
+        #Client side handshake: initial client_isn sequence number and flag bit set as 1
+
         #Create connection packet and initialize variables
-        self.packet.version = self.packet.SOCK352_SYN
-        self.packet.sequence_no = client_isn
+        self.sentpacket.version = self.sentpacket.SOCK352_SYN
+        self.sentpacket.sequence_no = client_isn
+        client_isn += 1
         #Pack the function
-        packed_data = self.packet.pack()
+        packed_data = self.sentpacket.pack()
 
-        #Send packet
+        #Send SYN packet
         self.sock2.sendto(packed_data, address)
-        PACKET_LIST.append(Packet(self.packet.version, self.packet.flags, self.packet.header_len, self.packet.sequence_no, self.packet.ack_no, self.packet.payload_len, self.packet.data))
-
-
+        PACKET_LIST.append(Packet(self.sentpacket.version, self.sentpacket.flags, self.sentpacket.header_len, self.sentpacket.sequence_no, self.sentpacket.ack_no, self.sentpacket.payload_len, self.sentpacket.data))
+        print("List after sending SYN packet: ")
         print(PACKET_LIST)
+        
+        #Wait for ACK packet from server
+        bytes, destination = self.sock.recv(MAX_PACKET_SIZE)
+        Packet.unpack(self.rcvpacket, bytes)
+
+        self.lookForPacket(self.rcvpacket)
+        
+        #Send ACK of the SYNRCV packet
+        self.sentpacket.ack_no = self.rcvpacket.sequence_no + 1 #server_isn + 1
+        self.flags = 0
+        bytes_sent = self.sock2.send(self.sentpacket.pack(), destination)
+
 
         return 
     
@@ -96,9 +129,40 @@ class socket:
         return
 
     def accept(self):
-        (clientsocket, address) = self.sock.accept() # change this to your code
-        self.sock2 = clientsocket
-        return (clientsocket,address)
+        global destination
+        global MAX_PACKET_SIZE
+        global server_isn
+        global PACKET_LIST
+        print('Accepting SYN packet')
+        #(clientsocket, address) =  # change this to your code
+
+        #Client side sock2 sends to serverside sock which is bound
+        
+        #Receive the SYN packet
+        clientsocket, destination = self.sock.recv(MAX_PACKET_SIZE)
+
+        #Unpack SYN packet
+        Packet.unpack(self.rcvpacket, clientsocket)
+
+        #Form SYNRCV packet
+        self.sentpacket.flags = self.sentpacket.SOCK352_SYN
+        self.sentpacket.ack_no = self.rcvpacket.sequence_no #clien_isn + 1
+        self.sentpacket.sequence_no = server_isn
+        server_isn += 1
+
+        bytes_sent = self.sock2.send(self.sentpacket.pack(), destination)
+        #Append packet to global array
+        PACKET_LIST.append(Packet(self.sentpacket.version, self.sentpacket.flags, self.sentpacket.header_len, self.sentpacket.sequence_no, self.sentpacket.ack_no, self.sentpacket.payload_len, self.sentpacket.data))
+
+        #Wait for an ACK from client 
+        clientsocket, destination = self.sock.recv(MAX_PACKET_SIZE)
+
+        Packet.unpack(self.rcvpacket, bytes)
+
+        self.lookForPacket(self.rcvpacket)
+
+
+        return (self.sock,address)
      
     def close(self):   # fill in your code here 
         self.sock.close()
@@ -113,6 +177,8 @@ class socket:
 
     def recv(self,nbytes):
         global MAX_PACKET_SIZE
+        global PACKET_LIST
+        global destination
 
         bytesreceived = 0     # fill in your code here
 
