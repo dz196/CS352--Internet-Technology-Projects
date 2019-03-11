@@ -1,4 +1,4 @@
-#Project by Group 25 David Zhang, Nikul Patel
+#Project by Group 25 David Zhang, Nakul Patel
 import binascii
 import socket as syssock
 import struct
@@ -43,18 +43,14 @@ def init(UDPportTx,UDPportRx):   # initialize your UDP socket here
 #If the in order packet isn't found, the packet isn't removed from the list
 def lookForPacketNorm(target_packet):
     global PACKET_LIST
-    #print('SIZE OF QUEUE BEFORE LOOKING: ' + str(PACKET_LIST))
     if len(PACKET_LIST) < 0:
         print('PACKET LIST EMPTY ERROR')
         return
     packet = PACKET_LIST[0]
-    #print('Sent SequenceNo: ' + str(packet.sequence_no))
-    #print('Received SequenceNo: ' + str(target_packet.sequence_no))
     if (packet.sequence_no == target_packet.sequence_no):
         PACKET_LIST.remove(packet)
-        #print('PACKET REMOVED')
-    #print('SIZE OF QUEUE AFTER LOOKING: ' + str(PACKET_LIST))
 
+#This method tracks the acknowledgements received by the client
 def checkACK(delay):
     global PACKET_LIST
     global thread_lock
@@ -75,9 +71,9 @@ def checkACK(delay):
         
         lookForPacketNorm(rcvpacket)
         thread_lock.release()
-    #print(PACKET_LIST)
-    #print('ACKS ALL ACKNOWLEDGED')
 
+#This method checks periodically for timeouts by sent packets
+#If timed out, reset time, bring it to the front, and send it again
 def checkForTimeouts(delay):
     global PACKET_LIST
     global thread_lock
@@ -85,7 +81,7 @@ def checkForTimeouts(delay):
     #Stall until packets are being sent
     while thread_state == False:
         time.sleep(delay)
-    
+    #Compare current time with sent time
     while PACKET_LIST:
         thread_lock.acquire()
         if PACKET_LIST:
@@ -97,12 +93,8 @@ def checkForTimeouts(delay):
                 sock.sendto(sentpacket.pack(), rcvaddr)
                 PACKET_LIST.pop(0)
                 PACKET_LIST.insert(0, Packet(sentpacket.version, sentpacket.flags,sentpacket.header_len, sentpacket.sequence_no, sentpacket.ack_no, sentpacket.payload_len, sentpacket.data, sentpacket.timesent ))
-                #print('RETRANSMITTED: ')
-                #print(PACKET_LIST[0].sequence_no)
-                #for packet in PACKET_LIST:
-                    #print('IN LIST:' + str(packet.sequence_no))
         thread_lock.release()
-    
+#Thread that manages data received by client
 class RCVThread(threading.Thread):
 
     def __init__(self, threadID, name, delay):
@@ -113,6 +105,7 @@ class RCVThread(threading.Thread):
         
     def run(self):
         checkACK(self.delay)
+#Thread that manages timeouts 
 class TimeoutThread(threading.Thread):
 
     def __init__(self, threadID, name, delay):
@@ -161,9 +154,10 @@ class Packet:
             self.ack_no = packet_fields[4]
             self.payload_len = packet_fields[5]
             self.data = packet_fields[6]
+
 class socket:
 
-    def __init__(self):  # fill in your code here 
+    def __init__(self):
         global sock
         global sock2
         sock = syssock.socket(syssock.AF_INET, syssock.SOCK_DGRAM)
@@ -175,17 +169,12 @@ class socket:
     #Using the sequence & ack numbers
     def lookForPacketHandshake(self, target_packet):
         global PACKET_LIST
-        #print('SIZE OF QUEUE BEFORE LOOKING: ' + str(PACKET_LIST))
         if len(PACKET_LIST) < 0:
             print('PACKET LIST EMPTY ERROR')
             return
         packet = PACKET_LIST[0]
-        #print('Sent SequenceNo: ' + str(packet.sequence_no))
-        #print('Received ACKNo: ' + str(target_packet.ack_no))
         if (packet.sequence_no == target_packet.ack_no-1):
             PACKET_LIST.remove(packet)
-            #print('PACKET REMOVED')
-        #print('SIZE OF QUEUE AFTER LOOKING: ' + str(PACKET_LIST))
         return
 
     def bind(self,address):
@@ -193,7 +182,6 @@ class socket:
         global sendaddr
         global sock
         sock.bind(sendaddr)
-        #print("Bind: " + str(sendaddr))
         return 
 
     def connect(self,address):  # fill in your code here 
@@ -207,11 +195,8 @@ class socket:
 
         #Bind client side receiving port - SOCK
         sock.bind(sendaddr)
-        #print('Bind: ' + str(sendaddr))
         #Make UDP Connection and bind receiving socket
-        #print(str(rcvaddr))
         sock2.connect(rcvaddr)
-        #print('Connect: ' + str(rcvaddr))
 
         #Client side handshake: initial client_isn sequence number and flag bit set as 1
 
@@ -221,17 +206,16 @@ class socket:
 
         #Send SYN packet
         sock.sendto(self.sentpacket.pack(), rcvaddr)
-        #print('SYN PACKET SENT: ' + str(self.sentpacket.sequence_no))
+        #Append it to global list
         PACKET_LIST.append(Packet(self.sentpacket.version, self.sentpacket.flags, self.sentpacket.header_len, self.sentpacket.sequence_no, self.sentpacket.ack_no, self.sentpacket.payload_len, self.sentpacket.data))
-        #print("List after sending SYN packet: ")
-        #print(PACKET_LIST)
-        
+
         #Wait for ACK packet from server
         bytes, address = sock.recvfrom(MAX_PACKET_SIZE)
-        #print('CLIENT RECEIVED ACK PACKET')
+
         Packet.unpack(self.rcvpacket, bytes)
         rcvno = self.rcvpacket.sequence_no + 1
         
+        #Check received packet for matches
         self.lookForPacketHandshake(self.rcvpacket)
         
         #Send ACK of the SYNRCV packet to server
@@ -254,11 +238,6 @@ class socket:
         global sock2
         global sendno
         global rcvno
-
-        #print('Accepting SYN packet')
-        #(clientsocket, address) =  # change this to your code
-
-        #Client side sock2 sends to serverside sock which is bound
         
         #Receive the SYN packet
         bytes, sendaddr = sock.recvfrom(MAX_PACKET_SIZE)
@@ -276,28 +255,29 @@ class socket:
         self.sentpacket.payload_len = 0
         self.sentpacket.data= b''"""
 
-        #print('SENDADDRESS + ' + str(sendaddr))
         #Send packet
         sock2.sendto(self.sentpacket.pack(), sendaddr)
-        #print('SERVER ACK SENT TO CLIENT')
-        #Append packet to global array
+
+        #Append packet to global list
         PACKET_LIST.append(Packet(self.sentpacket.version, self.sentpacket.flags, self.sentpacket.header_len, self.sentpacket.sequence_no, self.sentpacket.ack_no, self.sentpacket.payload_len, self.sentpacket.data))
 
         #Receive final ACK from client
         bytes, address = sock.recvfrom(MAX_PACKET_SIZE)
         Packet.unpack(self.rcvpacket, bytes)
 
+        #Check if it matches
         self.lookForPacketHandshake(self.rcvpacket)
 
         #print('Server Side Handshake Complete')
         return (self,sendaddr)
-     
+    
+    #If list is empty as closing condition
     def close(self):   # fill in your code here 
         global sock
         global sock2
         global thread_lock
         global PACKET_LIST
-        #print('REACHED CLOSE')
+
         while True:
             thread_lock.acquire()
             if len(PACKET_LIST) == 0:
@@ -314,14 +294,15 @@ class socket:
         global sock2
         global thread_state
         bytessent = 0
+        #Find size of the file being sent
         if len(buffer) == 4:
             sock.sendto(buffer, rcvaddr)
             head_format = struct.Struct('!L')    #Long is 32 bits = 4 bytes
             tups = head_format.unpack(buffer)
             size_of_file = tups[0]
-            #print('SIZE OF FILE: ' + str(size_of_file))
             bytessent = 4
         else:
+        #Send files in as big as data chunks possible
             startindices = range(0, size_of_file, MAX_PACKET_SIZE - struct.calcsize(header_format))
             while startindices:
                 startbyte = startindices[0]
@@ -335,37 +316,21 @@ class socket:
                     self.sentpacket.data = buffer[startbyte:startbyte + MAX_PACKET_SIZE-struct.calcsize(header_format)]
                 else:
                     self.sentpacket.data = buffer[startbyte:]
-                
-                if startbyte != 0:
-                    sock.sendto(self.sentpacket.pack(), rcvaddr)
-                
+
+                #Simulate a chance of dropped packets
                 drop_chance = random.random()
-                prob = .5
+                prob = .3
                 if drop_chance < prob:
-                #if startbyte != 64488:
                     sock.sendto(self.sentpacket.pack(), rcvaddr)
-                #sock.sendto(self.sentpacket.pack(), rcvaddr)
                 startindices.pop(0)
 
                 thread_lock.acquire()
                 PACKET_LIST.append(Packet(version = self.sentpacket.version, flags = self.sentpacket.flags, header_len = self.sentpacket.header_len, sequence_no = self.sentpacket.sequence_no, ack_no = self.sentpacket.ack_no, payload_len = self.sentpacket.payload_len, data = self.sentpacket.data, timesent = time.time()))
-                #print('APPENDED : ' + str(self.sentpacket.sequence_no))
                 thread_lock.release()
 
                 #Begin checking for delays after first packet is sent & appended
                 thread_state = 1
             bytessent = len(buffer)
-
-        #print('AFTER SENDING: ')
-        #print(len(PACKET_LIST))
-        #print(PACKET_LIST)
-        """
-        #Receive all ACKS
-        while PACKET_LIST:
-            bytes, address = sock.recvfrom(MAX_PACKET_SIZE)
-            Packet.unpack(self.rcvpacket, bytes)
-            
-            lookForPacketNorm(self.rcvpacket)"""
         return bytessent 
 
     def recv(self,nbytes):
@@ -374,20 +339,19 @@ class socket:
         global sock2
 
         bytesreceived = 0
+        #Find size of file received
         if nbytes == 4:
             bytes, address = sock.recvfrom(MAX_PACKET_SIZE)
             head_format = struct.Struct('!L')  
             tups = head_format.unpack(bytes)
             size_of_file = tups[0]
-            #print('SIZE OF FILE: ' + str(size_of_file))
             bytesreceived = bytes
         else:
+        #Receive data in big as data chunks as possible
             startindices = range(0, size_of_file, MAX_PACKET_SIZE - struct.calcsize(header_format))
             bytesreceived = ''
-            #print('BEFORE LOOP')
             while startindices:
                 startbyte = startindices[0]
-                #print('STARTBYTE: '  + str(startbyte))
                 bytes, address = sock.recvfrom(MAX_PACKET_SIZE)
                 Packet.unpack(self.rcvpacket, bytes)
 
@@ -403,18 +367,13 @@ class socket:
                     self.sentpacket.data = b''
 
                     sock2.sendto(self.sentpacket.pack(), sendaddr)
-                    #print('ACK of Sequence No: ' + str(startbyte))
-
                     startindices.pop(0)
-                #print('END OF LOOP')
-        #print('AFTER RECEIVING: ')
-        #print(len(PACKET_LIST))
-        #print(PACKET_LIST)
         return bytesreceived 
+
 
 thr1 = RCVThread(1, 'Thread1', 0.2)
 thr2 = TimeoutThread(2, 'Thread2', 0.2)
-
+#Thread will exit when main thread exits
 thr1.daemon = True
 thr2.daemon = True
 
