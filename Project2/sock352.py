@@ -1,4 +1,4 @@
-
+#Built upon Project1Solutions.py; Author: David Zhang, Nakul Patel
 # CS 352 project part 2 
 # this is the initial socket library for project 2 
 # You wil need to fill in the various methods in this
@@ -181,14 +181,16 @@ class socket:
         global ENCRYPT
         global box
         global nonce
-
+        #Set the address to the first argument if it is there
         if (len(args) >= 1): 
             address = args[0]
+        #If there are two arguments, if the second one is ENCRYPT, then set encryption boolean to True
+        #and create Box and Nonce
         if (len(args) >= 2):
             if (args[1] == ENCRYPT):
                 self.encryption = True
 
-                address = (address[0], str(portRx))
+                address = (address[0], str(portTx))
                 print(address)
                 if address in publicKeys and privateKeys:   
                     box = Box(privateKeys[('*','*')], publicKeys[address])
@@ -261,20 +263,11 @@ class socket:
         global box
         global nonce
         #Bind server to receiving port
-        self.socket.bind(('', portRx))
-        #Define address
-        address = ('localhost', str(portRx))
-        print(address)
+        self.socket.bind(('', portRx))    
+        #If there is an argument, check if its equal to ENCRYPT and set boolean to True
         if (len(args) >= 1):
             if (args[0] == ENCRYPT):
                 self.encryption = True
-                if address in publicKeys and privateKeys:   
-                    box = Box(privateKeys[('*','*')], publicKeys[address])
-                    nonce = nacl.utils.random(Box.NONCE_SIZE)
-                else:
-                    print('Accept Encryption Failed')
-                    return
-
 
         # makes sure again that the server is not already connected
         # because part 1 supports a single connection only
@@ -286,10 +279,20 @@ class socket:
         got_connection_request = False
         while not got_connection_request:
             try:
+            
                 # tries to receive a potential SYN packet and unpacks it
                 (syn_packet, addr) = self.socket.recvfrom(PACKET_HEADER_LENGTH)
                 syn_packet = struct.unpack(PACKET_HEADER_FORMAT, syn_packet)
-
+                #Tuple parts are put in dictionaries as string
+                tmpaddr = (addr[0], str(addr[1]))
+                #If encryption bool is True, check for addr in dictionaries and create box/nonce
+                if self.encryption:
+                    if tmpaddr in publicKeys and privateKeys:   
+                        box = Box(privateKeys[('*','*')], publicKeys[tmpaddr])
+                        nonce = nacl.utils.random(Box.NONCE_SIZE)
+                    else:
+                        print('Accept Encryption Failed')
+                        return
                 # if the received packet is not a SYN packet, it ignores the packet
                 if syn_packet[PACKET_FLAG_INDEX] == SOCK352_SYN:
                     got_connection_request = True
@@ -385,12 +388,14 @@ class socket:
 
             # attaches the payload length of buffer to the end of the header to finish constructing the packet
 
+            #If encryption bool is true, payload needs to be encrypted; append encrypted payload
             if self.encryption:
                 payload = buffer[MAXIMUM_PAYLOAD_SIZE * i: MAXIMUM_PAYLOAD_SIZE * i + payload_len]
                 binary_payload = bytes(payload).encode('utf-8')
                 encrypted_payload = box.encrypt(binary_payload, nonce)
                 self.data_packets.append(new_packet + encrypted_payload)
             else:
+            #Otherwise, append normally
                 payload = buffer[MAXIMUM_PAYLOAD_SIZE * i: MAXIMUM_PAYLOAD_SIZE * i + payload_len]
                 self.data_packets.append(new_packet + payload)
         
@@ -573,7 +578,7 @@ class socket:
         if packet_header[PACKET_SEQUENCE_NO_INDEX] != self.ack_no:
             return
 
-        # adds the payload data to the data packet array
+        # Adds the payload data to the data packet array
         if self.encryption:
             #Decrypted into binary data
             packet_data = box.decrypt(packet_data)
